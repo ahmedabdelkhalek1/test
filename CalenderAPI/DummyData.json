@@ -1,0 +1,50 @@
+[
+  {
+    "sid": "1",
+    "name": "Sprint Planning",
+    "content": "Agenda:\n1. Review last sprint\n2. Define sprint goals\nTo-do: Assign tasks by 2025-04-20.",
+    "category": "Meeting",
+    "level": 2,
+    "status": 0.0,
+    "creation_time": "2025-03-14 08:00:00",
+    "start_time": "2025-04-16 09:00:00",
+    "end_time": "2025-04-16 10:30:00",
+    "attachments": "attachment_1.txt"
+  },
+  {
+    "sid": "2",
+    "name": "Daily Standup",
+    "content": "What did you do yesterday?\nChallenges?\nPlan for today?\nTo-do: Log progress in tracker by 2025-05-14.",
+    "category": "Standup",
+    "level": 1,
+    "status": 0.1,
+    "creation_time": "2025-03-14 08:30:00",
+    "start_time": "2025-04-16 11:00:00",
+    "end_time": "2025-04-16 11:30:00",
+    "attachments": "attachment_2.txt"
+  },
+  {
+    "sid": "3",
+    "name": "Design Sync",
+    "content": "Agenda:\n1. Review new design mockups\n2. Discuss usability\nTo-do: Share feedback by 2025-04-15.",
+    "category": "Feedback",
+    "level": 3,
+    "status": 0.2,
+    "creation_time": "2025-03-10 12:00:00",
+    "start_time": "2025-04-16 14:00:00",
+    "end_time": "2025-04-16 15:00:00",
+    "attachments": "attachment_3.txt"
+  },
+  {
+    "sid": "4",
+    "name": "Client Call",
+    "content": "Agenda:\n1. Present updates\n2. Discuss concerns\nTo-do: Send summary email by 2025-04-16.",
+    "category": "Meeting",
+    "level": 2,
+    "status": 0.3,
+    "creation_time": "2025-03-27 09:00:00",
+    "start_time": "2025-04-16 10:00:00",
+    "end_time": "2025-04-16 11:00:00",
+    "attachments": "attachment_4.txt"
+  }
+]

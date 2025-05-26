@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Calendar</title>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@5.11.3/main.min.css">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#86BC24',
+                        dark: '#0F0B0B',
+                        light: '#F1F5F9'
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { transition: background-color 0.5s ease-in-out; }
+    </style>
+</head>
+<body class="bg-light dark:bg-dark text-gray-900 dark:text-gray-200 flex flex-col items-center min-h-screen">
+    <nav class="w-full bg-primary text-white p-4 flex justify-between">
+        <h2 class="text-xl font-bold">📅 My Calendar</h2>
+        <div>
+            <a href="#home" class="px-4">Home</a>
+            <a href="#calendar" class="px-4">Calendar</a>
+            <a href="#notifications" class="px-4">Notifications</a>
+            <a href="#profile" class="px-4">Profile</a>
+        </div>
+    </nav>
+    
+    <section id="home" class="w-11/12 md:w-3/4 lg:w-2/3 my-6">
+        <input type="text" id="search" placeholder="Search events..." class="w-full p-2 mb-4 border rounded">
+        <h3 class="text-2xl font-bold">Upcoming Events</h3>
+        <ul id="upcomingEvents" class="mt-2 text-gray-700 dark:text-gray-300"></ul>
+    </section>
+
+    <section id="calendar" class="w-11/12 md:w-3/4 lg:w-2/3 my-6">
+        <h3 class="text-2xl font-bold">Calendar View</h3>
+        <div class="bg-white dark:bg-gray-800 shadow-xl rounded-lg p-6">
+            <div id="calendarView"></div>
+        </div>
+    </section>
+
+    <section id="notifications" class="w-11/12 md:w-3/4 lg:w-2/3 my-6">
+        <h3 class="text-2xl font-bold">Notifications</h3>
+        <ul id="notificationsList" class="mt-2 text-gray-700 dark:text-gray-300"></ul>
+    </section>
+
+    <section id="profile" class="w-11/12 md:w-3/4 lg:w-2/3 my-6">
+        <h3 class="text-2xl font-bold">User Profile</h3>
+        <p>Name: <span id="userName">Calendar User</span></p>
+        <p>Email: <span id="userEmail">alendar@Deloitte.com</span></p>
+        <h4 class="text-xl mt-4">Your Events</h4>
+        <ul id="userEvents" class="mt-2 text-gray-700 dark:text-gray-300"></ul>
+    </section>
+    
+    
+    <div id="calendarView"></div>
+
+    <div id="eventModal" class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-lg w-96 relative">
+            <h3 class="text-xl font-bold mb-4">Event Details</h3>
+            <p id="eventDetails"></p>
+            <button onclick="closeModal()" class="mt-4 bg-primary text-white py-2 px-4 rounded">Close</button>
+        </div>
+    </div>
+    <section id="eventActions" class="w-11/12 md:w-3/4 lg:w-2/3 my-6">
+        <h3 class="text-2xl font-bold">Manage Events</h3>
+        <form id="eventForm" class="space-y-4">
+            <!-- You can use a hidden input for sid if it remains constant -->
+            <input type="hidden" id="sid" placeholder="sid" class="w-full p-2 border rounded">
+            <!-- Event Name (corresponds to "name") -->
+            <input type="text" id="eventName" placeholder="Event Name" class="w-full p-2 border rounded">
+            <!-- Event Content (corresponds to "content") -->
+            <textarea id="eventContent" placeholder="Event Content" class="w-full p-2 border rounded"></textarea>
+            <form id="eventForm" class="space-y-4" enctype="multipart/form-data">
+                <input type="file" id="fileInput" style="display: none;">
+                <button type="button" id="attachmentButton" class="bg-blue-500 text-white px-4 py-2 rounded">Attach File</button>
+                <p id="attachments"></p>
+            </form>
+            <!-- Category -->
+            <input type="text" id="eventCategory" placeholder="Event Category" class="w-full p-2 border rounded">
+            <!-- Level (e.g., priority level as a number) -->
+            <input type="hidden" id="eventLevel" value="1">
+            <input type="hidden" id="eventStatus" value="0">
+            <!-- Creation Time (if you want the user to specify it, otherwise you can auto-generate this) -->
+            <input type="hidden" id="creationTime">
+            <!-- Start Time -->
+            <input type="datetime-local" id="eventStart" placeholder="Event Start" class="w-full p-2 border rounded">
+            <!-- End Time -->
+            <input type="datetime-local" id="eventEnd" placeholder="Event End" class="w-full p-2 border rounded">
+            <button type="button" onclick="console.log('Button clicked'); addEvent()" class="bg-primary text-white py-2 px-4 rounded">
+                Add Event
+            </button>
+        </form>
+    </section>
+    
+    
+    <script>
+        const fileInput = document.getElementById("fileInput");
+        const attachmentButton = document.getElementById("attachmentButton");
+        const attachmentsParagraph = document.getElementById("attachments");
+
+        attachmentButton.addEventListener("click", () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener("change", async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const formData = new FormData();
+            formData.append("file", file);
+
+            try {
+                let response = await fetch("http://127.0.0.1:8000/upload", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error("Failed to upload file");
+
+                let result = await response.json();
+                attachmentsParagraph.innerHTML = `<strong>Attachment:</strong> ${result.file_name}`;
+                document.getElementById("attachments").value = result.file_name; // Store filename in hidden field
+            } catch (error) {
+                console.error("Error uploading file:", error);
+            }
+        });
+
+
+        document.addEventListener('DOMContentLoaded', function() {
+            var calendarEl = document.getElementById('calendarView');
+            var calendar = new FullCalendar.Calendar(calendarEl, {
+                initialView: 'dayGridMonth',
+                selectable: true,
+                headerToolbar: {
+                    left: 'prev,next today',
+                    center: 'title',
+                    right: 'dayGridMonth,timeGridWeek,timeGridDay'
+                },
+                dateClick: function(info) {
+                    showEventsForDate(info.dateStr);
+                },
+                events: fetchEvents 
+            });
+            calendar.render();
+            loadUpcomingEvents();
+            loadNotifications();
+            loadUserEvents(); 
+        });
+
+        async function fetchEvents(fetchInfo, successCallback, failureCallback) {
+            try {
+                let response = await fetch("http://127.0.0.1:8000/schedules");
+                if (!response.ok) throw new Error("Failed to fetch events");
+                let data = await response.json();
+                let events = data.map(event => ({
+                    id: event[0],
+                    title: event[1],
+                    start: event[7],
+                    end: event[8],
+                    description: event[2],
+                    attachments: event[9]
+                }));
+                successCallback(events);
+            } catch (error) {
+                console.error("Error loading events:", error);
+                failureCallback(error);
+            }
+        }
+        async function addEvent() {
+            try {
+                // Fetch the latest SID and increment it
+                let response = await fetch("http://127.0.0.1:8000/schedules");
+                let events = await response.json();
+                console.log("Fetched events:", events);  // Debug API response
+
+                let latestSid = events.length + 1; 
+                console.log("Calculated latestSid:", latestSid);  // Debug calculated SID
+                
+                document.getElementById("sid").value = String(latestSid); // Set the hidden input value
+
+                // Retrieve values from the form
+                const name = document.getElementById("eventName").value;
+                const content = document.getElementById("eventContent").value;
+                const category = document.getElementById("eventCategory").value;
+                const start_time = formatDateTime(document.getElementById("eventStart").value);
+                const end_time = formatDateTime(document.getElementById("eventEnd").value);
+             // Check if the attachments field exists before accessing its value
+        let attachmentsField = document.getElementById("attachments");
+        let attachments = "No attachments"; // Default value
+
+        if (attachmentsField && attachmentsField.value) {
+            attachments = attachmentsField.value.trim(); // Only trim if the element exists and has a value
+        }
+                
+                // Construct the event object
+                const eventData = {
+                    sid: String(latestSid) ,  // Set calculated SID
+                    name,
+                    content,
+                    category,
+                    level: 1,  // Always set to 1
+                    status: 0, // Always set to 0
+                    creation_time: new Date().toISOString().slice(0, 19).replace("T", " "), // Current timestamp
+                    start_time,
+                    end_time,
+                    attachments,
+                };
+
+                console.log("Event Data:", eventData); // Debugging
+
+                // Send the event data to backend
+                let postResponse = await fetch("http://127.0.0.1:8000/schedules", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(eventData)
+                });
+
+                if (!postResponse.ok) throw new Error("Failed to create event");
+                location.reload(); // Reload the page after successful submission
+            } catch (error) {
+                console.error("Error creating event:", error);
+            }
+        }
+
+
+        async function deleteEvent(eventId) {
+            try {
+                let response = await fetch(`http://127.0.0.1:8000/schedules/${eventId}`, {
+                    method: "DELETE"
+                });
+                if (!response.ok) throw new Error("Failed to delete event");
+                location.reload();
+            } catch (error) {
+                console.error("Error deleting event:", error);
+            }
+        }
+
+        // New function to load and render user events with delete buttons
+        async function loadUserEvents() {
+            try {
+                let response = await fetch("http://127.0.0.1:8000/schedules");
+                if (!response.ok) throw new Error("Failed to load events");
+                let events = await response.json();
+                let userEventsList = document.getElementById('userEvents');
+                
+                // Create list items with event details and a delete button for each event
+                userEventsList.innerHTML = events.map(e => 
+                    `<li class="flex items-center justify-between py-1 border-b border-gray-200">
+                        <span>${e[1]} - ${e[6]}</span>
+                        <button onclick="deleteEvent('${e[0]}')" class="bg-red-500 hover:bg-red-600 text-white py-1 px-2 rounded">
+                            Delete
+                        </button>
+                    </li>`
+                ).join('');
+            } catch (error) {
+                console.error("Error loading user events:", error);
+            }
+        }
+        async function showEventsForDate(date) {
+            let response = await fetch("http://127.0.0.1:8000/schedules");
+            let events = await response.json();
+            
+            let filteredEvents = events.filter(e => {
+                let startDate = new Date(e[7].replace(" ", "T")); 
+                let endDate = new Date(e[8].replace(" ", "T"));
+                let givenDate = new Date(date);
+
+                startDate.setHours(0, 0, 0, 0);
+                endDate.setHours(0, 0, 0, 0);
+                givenDate.setHours(0, 0, 0, 0);
+
+                return givenDate >= startDate && givenDate <= endDate;
+            });
+
+            let detailsHTML = filteredEvents.length > 0 ? 
+                filteredEvents.map(e => `<p><strong>ID:</strong> ${e[0]}<br>
+                                         <strong>Title:</strong> ${e[1]}<br>
+                                         <strong>Start:</strong> ${e[7]}<br>
+                                         <strong>End:</strong> ${e[8]}<br>
+                                         <strong>Description:</strong> ${e[2]}<br>
+                                         <strong>Attachments:</strong> ${e[9]}</p><hr>`).join('') 
+                : '<p>No events for this day.</p>';
+
+            // Remove existing modal if it exists
+            let existingModal = document.getElementById('eventModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            // Create modal container
+            let modal = document.createElement('div');
+            modal.id = 'eventModal';
+            modal.style.position = 'fixed';
+            modal.style.inset = '0';
+            modal.style.display = 'flex';
+            modal.style.alignItems = 'center';
+            modal.style.justifyContent = 'center';
+            modal.style.background = 'rgba(0, 0, 0, 0.5)';
+            modal.style.zIndex = '1000';
+
+            // Create modal content
+            let modalContent = document.createElement('div');
+            modalContent.style.background = 'white';
+            modalContent.style.padding = '20px';
+            modalContent.style.borderRadius = '8px';
+            modalContent.style.width = '80%';
+            modalContent.style.maxHeight = '80vh';  // Enable scrolling
+            modalContent.style.overflowY = 'auto';
+            modalContent.style.position = 'relative';
+
+            // Create close button
+            let closeButton = document.createElement('button');
+            closeButton.innerText = 'X';
+            closeButton.style.background = 'red';
+            closeButton.style.color = 'white';
+            closeButton.style.border = 'none';
+            closeButton.style.padding = '8px 12px';
+            closeButton.style.cursor = 'pointer';
+            closeButton.style.position = 'absolute';
+            closeButton.style.top = '10px';
+            closeButton.style.right = '10px';
+            closeButton.style.borderRadius = '5px';
+
+            closeButton.onclick = function () {
+                modal.remove();
+            };
+
+            // Append elements
+            modalContent.innerHTML = `<h4 class='text-lg font-bold mb-2'>Events on ${date}</h4>` + detailsHTML;
+            modalContent.appendChild(closeButton);
+            modal.appendChild(modalContent);
+            document.body.appendChild(modal);
+        }
+
+        async function loadUpcomingEvents() {
+            let response = await fetch("http://127.0.0.1:8000/schedules");
+            let events = await response.json();
+
+            let upcomingList = document.getElementById('upcomingEvents');
+            let now = new Date();
+
+            // Filter events that start in the future (start time >= now)
+            let upcomingEvents = events
+                .filter(e => new Date(e[7].replace(" ", "T")) >= now)  // Ensure correct date parsing
+                .slice(0, 5); // Limit to 5 events
+
+            upcomingList.innerHTML = upcomingEvents.length > 0 
+                ? upcomingEvents.map(e => `<li>${e[1]} - ${e[7]}</li>`).join('') 
+                : '<li>No upcoming events</li>';
+        }
+
+        async function loadNotifications() {
+            let response = await fetch("http://127.0.0.1:8000/schedules");
+            let events = await response.json();
+
+            let notificationsList = document.getElementById('notificationsList');
+            let now = new Date();
+
+            // Filter events that have already ended (end time < now)
+            let missedEvents = events
+                .filter(e => new Date(e[7].replace("T", " ")) < now)  // Ensure correct date parsing
+                .slice(0, 5); // Limit to 5 events
+
+            notificationsList.innerHTML = missedEvents.length > 0 
+                ? missedEvents.map(e => `<li>${e[1]} - ${e[8]}</li>`).join('')
+                : '<li>No missed events</li>';
+        }
+        
+
+        function closeModal() {
+            document.getElementById('eventModal').classList.add('hidden');
+        }
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return "";
+            // Replace the "T" with a space and append ":00" for seconds
+            return dateTimeStr.replace("T", " ") + ":00";
+        }
+    </script>
+    
+
+    
+</body>
+</html>

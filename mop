@@ -1,0 +1,905 @@
+# Contents
+
+# 1 - Dataiku DSS (Design Node) Deployment – Google Cloud Platform
+
+# 1.2. Instance & Network Preparation
+
+# 1.3. VM Creation & Initial Access
+
+# 1.4. Environment Configuration
+
+# 1.5. DSS Installation
+
+# 1.6 Check point: New Project > Learning projects
+
+(create a tutorial or sample project) create a new "Dataiku TShirts" project and check that you can build the flow
+
+# Step 2: Connect Dataiku DSS to Google Cloud Storage (GCS)
+
+# 2.2 Create a Service Account and Key
+
+# 2.3 Upload Service Account Key to DSS VM
+
+# 2.4 Grant Service Account Access to Bucket
+
+# 2.5 Configure DSS: Create GCS Connection
+
+# 3 Check point: In the TShirts project, change the connection of the managed datasets to the new GCS connection
+
+# Step 3: Connect Dataiku DSS to a Managed GKE Cluster
+
+# 3.1 Service Account Setup
+
+# 3.2 Prerequisite Tool Installation on DSS VM
+
+# 3.3 Create & Configure Google Artifact Registry (GAR)
+
+# 3.4 DSS Plugin Installation + Configuration
+
+# 3.5 Create Cluster via DSS
+
+# 3.6 Build and Push Base Docker Images
+
+# 3.7 Test GKE Integration With DSS
+
+# Step 4: Expose DSS Over HTTPS (Secure Web Access)
+
+# 4.1 Generate SSL Certificates
+
+# 4.2 Nginx Reverse Proxy Configuration
+
+# 4.3 Restart Nginx
+
+# 4.4 DSS HTTPS Access & Verification
+
+# Step 5: Configure Dataiku DSS for Spark on GKE & GCS
+
+# 5.1. Install Spark and Hadoop Client Libraries
+
+# 5.2. Build and Push DSS Base Images
+
+# 5.3. Containerized Execution Configuration
+
+# 5.4. Spark Configuration
+
+# 5.5. Push Base Images (UI Step)
+
+# 5.6. Choose Containerized Execution for Recipes
+
+# 5.7. Run Spark Job in Project
+
+# 5.8. Confirmation of Correct Operation
+
+# 1.1. Overview
+
+This guide describes the custom installation process for a Dataiku DSS Design Node on Google Cloud Platform, following best practices and the official Dataiku DSS documentation.
+
+# 1.2. Instance & Network Preparation
+
+# 1.2.1 Instance Requirements
+
+- Supported OS: Ubuntu Server 20.04/22.04 LTS (recommended), Debian 11/12, Red Hat 8.10/9.x, AlmaLinux 8.10/9.x, etc.
+- CPU: Minimum 8 vCPUs
+- RAM: Minimum 32 GB
+- Storage: 100 GB+ SSD, ext4 or XFS filesystem
+- Dedicated UNIX user: dataiku
+- Network: DSS requires up to 10 consecutive TCP ports (only first port exposed externally)
+- System Settings:
+  - ulimit -Hn 65536
+  - ulimit -Hu 65536
+  - en_US.utf8 locale
+
+# 1.2.2 VPC & Subnet Setup
+
+1. Go to Google Cloud Console > VPC Network > VPC Networks
+2. Click Create VPC network
+   - Name: dss-vpc
+   - Subnet creation mode: Custom
+3. Add Subnet (Name: dss-subnet, e.g., IP range: 10.10.0.0/24, Region matches your VM)
+4. When creating your VM, under the Networking section:
+   - Network: Select dss-vpc
+   - Subnetwork: Select dss-subnet
+
+| VPC Network / Subnetwork: | dss-subnet          |
+| ------------------------- | ------------------- |
+| VPC Network               | dss-vpc             |
+| Region                    | us-central1         |
+| IP stack type             | IPv4 (single-stack) |
+| Primary IPv4 range        | 10.10.0.0/24        |
+| Access type               | Internal            |
+| Reserved internal range   | None                |
+| Utilization               | 3.52%               |
+| Used IP addresses         | 9                   |
+| Free IP addresses         | 247                 |
+
+| Subnet range name   | Secondary IPv4 range | Reserved internal range | Utilization | Used IP addresses | Free IP addresses |
+| ------------------- | -------------------- | ----------------------- | ----------- | ----------------- | ----------------- |
+| gke-dss-containers- | 10.112.0.0/14        | gke-dss-containers-     | 0.29%       | 768               | 261376            |
+
+# 1.2.3 Firewall Rules
+
+# 1.3. VM Creation & Initial Access
+
+# 3.1 Create VM Instance
+
+Go to VPC Network > Firewall Rules, click Create:
+
+- Name: allow-dss-port
+- Network: dss-vpc
+- Source IP: VM-IP/32 (secure) or 0.0.0.0/0 (not recommended)
+- Protocol/Ports: tcp:10000
+
+Save rule.
+
+| Name                    | dss-design-node                    |
+| ----------------------- | ---------------------------------- |
+| Instance Id             | 673211615328693596                 |
+| Description             | None                               |
+| Type                    | Instance                           |
+| Status                  | Running                            |
+| Creation time           | Oct 22, 2025, 4:53:08 PM UTC+04:00 |
+| Location                | us-central1-c                      |
+| Boot disk source image  | ubuntu-2204-jammy-v20251002        |
+| Boot disk architecture  | X86_64                             |
+| Boot disk license type  | Free                               |
+| Instance template       | None                               |
+| In use by               | None                               |
+| Physical host           | None                               |
+| Maintenance status      | ;                                  |
+| Reservations            | Automatically choose               |
+| Labels                  | goog-ops-a.. : v2-x86-tem...       |
+| Tags                    | i                                  |
+| Deletion protection     | Disabled                           |
+| Confidential VM service | Disabled                           |
+| Preserved state size    | 0 GB                               |
+
+# 1.3.2 SSH Access
+
+Wait for credentials or use:
+
+```
+gcloud compute ssh --zone "us-central1-c" "dss-design-node" --project "fe-emea-aabdelkhalek"
+```
+
+# 1.4. Environment Configuration
+
+# 4.1 Create Dedicated User
+
+```
+sudo adduser dataiku
+sudo su - dataiku
+```
+
+# 4.2 Locale & Limits
+
+```
+sudo locale-gen en_US.UTF-8
+ulimit -Hn 65536
+ulimit -Hu 65536
+```
+
+# 4.3 Sudo Access
+
+Switch to root user (using default account, e.g., ubuntu):
+
+```
+sudo su -
+usermod -aG sudo dataiku
+adduser dataiku sudo
+visudo # Ensure "%sudo ALL=(ALL:ALL) ALL" line exists!
+```
+
+If sudo commands fail for dataiku: revisit group membership/sudoers file
+
+# 1.5. DSS Installation
+
+# 5.1 Download DSS Install Kit
+
+Get the download link from your email or from here.
+
+```
+wget https://cdn.downloads.dataiku.com/public/dss/14.2.0/dataiku-dss-14.2.0.tar.gz
+tar xzf dataiku-dss-14.2.0.tar.gz
+cd dataiku-dss-14.2.0/
+```
+
+# 5.2 Install Required Packages and Dependencies
+
+```
+sudo apt-get update
+sudo apt-get install -y openjdk-11-jdk python3 python3-pip python3-venv nodejs npm nginx
+sudo -i "/home/dataiku/dataiku-dss-14.2.0/scripts/install/install-deps.sh"
+```
+
+# 5.3 Create DSS Data Directory
+
+```
+mkdir ~/dss_data
+```
+
+# 5.4 Run Installer
+
+Example (replace paths/port):
+
+Upload License File to VM :
+
+```
+wget https://file-sharing-app-ha0b.onrender.com/download/Candidate_license_eng.ahmed7007%40gmail.com_20260120.json
+dataiku-dss-14.2.0/installer.sh -d /home/dataiku/dss_data/ -l /home/dataiku/Candidate_license_eng.ahmed7007@gmail.com_20260120.json -p 10000
+```
+
+# 5.6 Start DSS
+
+```
+~/dss_data/bin/dss start
+```
+
+Access DSS at:
+
+```
+http://<HOSTNAME>:10000
+```
+
+Default credentials:
+
+- Username: admin
+- Password: admin
+
+Note: first I couldn't access the web page so I did those troubleshooting steps to confirm the service is up and server is listening on 10000 port
+
+```
+- curl -k -kv localhost:10000
+- ps aux | grep dss
+- ~/dss_data/bin/dss status
+- sudo netstat -plnt | grep 10000
+- ss -plnt | grep 10000
+```
+
+then I noticed I was visiting HTTPS:// not HTTP:
+
+# 5.7 Configure DSS as System Service
+
+Stop manual service:
+
+```
+~/dss_data/bin/dss stop
+```
+
+Install as boot service:
+
+```
+sudo "/home/dataiku/dataiku-dss-14.2.0/scripts/install/install-boot.sh" "/home/dataiku/dss_data" dataiku
+sudo systemctl start dataiku
+```
+
+# 1.6 Check point: New Project > Learning projects (create a tutorial or sample project)
+
+create a new "Dataiku TShirts" project and check that you can build the flow
+
+# Step 2: Connect Dataiku DSS to Google Cloud Storage (GCS)
+
+- Go to GCP Storage Browser
+- Click Create bucket
+- Name: Unique identifier (dss-demo-bucket-ahabdelkhalek)
+- Location: Regional (match region to DSS VM for optimal performance)
+- Click Create
+
+# 2.2 Create a Service Account and Key
+
+- Go to IAM & Admin > Service Accounts
+- Click Create Service Account
+- Name: dss-gcs-access
+- Assign Storage Admin role
+- Complete setup and click Done
+- Add Service Account Key:
+  - Find your new account in the table, click three dots (...) > Manage keys
+  - Click Add Key > Create new key > JSON
+  - Download the JSON key file
+
+# 2.3 Upload Service Account Key to DSS VM
+
+- Use SCP or gcloud compute scp to transfer the JSON key file to your DSS VM (e.g., /home/dataiku/dss-gcs-sa.json)
+
+# 2.4 Grant Service Account Access to Bucket
+
+- If assigned "Storage Admin" role, access is set; restrict further if required:
+  - Go to Bucket > Permissions > Add Principal
+  - Add: your-service-account@project.iam.gserviceaccount.com
+  - Role: Storage Admin or Storage Object Admin (as needed)
+
+# 2.5 Configure DSS: Create GCS Connection
+
+1. In DSS UI:
+   - Administration > Connections > New Connection > Google Cloud Storage
+2. Fill out connection details:
+   - Connection Name: e.g., gcs-demo
+   - Project key: (GCP Project ID)
+   - Private key path: /home/dataiku/dss-gcs-sa.json
+   - Bucket name: (Your newly-created bucket, e.g., dss-demo-bucket-<initials>)
+   - Default bucket: (Same as above)
+   - Default path: (Optional)
+   - HDFS interface: GS
+   - Allow write / managed datasets / folders: Yes
+   - Freely usable by: Every analyst (adjust for security)
+   - Leave other fields default unless project requires (e.g., Snowflake integration)
+3. Save & Test Connection:
+   - Click Test to ensure connection works.
+
+# 3 Check point:
+
+In the TShirts project, change the connection of the managed datasets to the new GCS connection
+
+- In your project, go to Datasets > Change Storage > select all Datasets > change connection > new GCS connection for managed datasets.
+
+# Step 3: Connect Dataiku DSS to a Managed GKE Cluster
+
+# 3.1 Service Account Setup
+
+Objective: Isolate DSS access and follow least-privilege security.
+
+GCP Console: IAM & Admin > Service Accounts > Create Service Account
+
+- Name: dss-gcp-acess
+- Roles: add +
+
+# 3.2 Prerequisite Tool Installation on DSS VM
+
+Ensure these are installed:
+
+- gcloud CLI
+- kubectl
+- docker
+- gke-gcloud-auth-plugin
+
+To install:
+
+# Add kubectl & GKE auth plugin
+
+```
+gcloud components install kubectl
+gcloud components install gke-gcloud-auth-plugin
+```
+
+# Configure Docker for Artifact Registry
+
+```
+gcloud auth configure-docker
+sudo apt-get install -y docker.io
+sudo systemctl enable --now docker
+sudo usermod -aG docker $USER
+echo $USER
+docker version
+sudo snap install kubectl --classic
+kubectl version –client
+
+sudo apt-get update
+sudo apt-get install apt-transport-https ca-certificates gnupg curl
+curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key --keyring /usr/share/keyrings/cloud.google.gpg add -
+echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+
+sudo apt-get install google-cloud-sdk-gke-gcloud-auth-plugin kubectl
+export USE_GKE_GCLOUD_AUTH_PLUGIN=True
+gke-gcloud-auth-plugin --version
+```
+
+# Reference:
+
+kubectl access, kubectl authentication,
+
+# 3.3 Create & Configure Google Artifact Registry (GAR)
+
+# Artifact Registry Console:
+
+Create a Docker repository under Artifact Registry > Repositories > Create Repository
+- Name: dss-containers
+- Format: Docker
+- Location/Region: us-central1 (same as DSS VM and GKE)
+- URL: us-central1-docker.pkg.dev/fe-emea-aabdelkhalek/dss-containers
+
+# 3.4 DSS Plugin Installation + Configuration
+
+DSS UI: Administration > Plugins > Store > Search "GKE clusters" > Install
+
+# Cluster Connection Preset:
+
+- GCP Project: fe-emea-aabdelkhalek
+- Zone: us-central1-a
+- Service Account Key: /home/dataiku/dss-gcp-services.json
+- Node Pool Preset:
+
+# 3.5 Create Cluster via DSS
+
+DSS UI:
+
+- Administration > Cluster > Add Cluster > Google Kubernetes Engine
+- Recommended: Let DSS manage the cluster
+- Fill in all presets: Project, zone, node pool, service account key
+- Network: Use same VPC/subnetwork as DSS VM and GCS bucket
+
+dss-containers - GKE (managed) - Running
+
+# Configuration
+
+| Connection  | Manually defined     |
+| ----------- | -------------------- |
+| Project key | fe-emea-aabdelkhalek |
+| GCP Zone    | us-central1-a        |
+| GCP Region  |                      |
+
+Enroll into a release channel
+
+- Whether the cluster should be enrolled in a release channel (recommended).
+
+| Release Channel | Default (recommended)                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|                 | Default will enroll you in the most stable channel for the version you have selected. If you have defined 'latest' for your cluster version, you will be enrolled in the 'Regular' channel. |
+
+Kubernetes version
+
+- latest
+- Defaults to the latest version of the configured release channel (or if not enrolled, to a default version in the Regular channel). Find more information on the available versions.
+
+Regional
+
+- Whether the cluster is regional (if not, it's zonal)
+
+# Networking
+
+- For VPC-native clusters, leave IP ranges empty to let GKE automatically assign them.
+- Inherit DSS host settings
+- Make cluster VPC-native
+
+Allocate pod/service IPs directly from GCP network (RECOMMENDED)
+
+# Pods
+
+| Name                          | Ready | Status  | DSS user   | DSS project | DSS object | Namespace       |
+| ----------------------------- | ----- | ------- | ---------- | ----------- | ---------- | --------------- |
+| collector-ngvgc               | 2/2   | Running | gmp-system |             |            |                 |
+| collector-rm6cv               | 2/2   | Running | gmp-system |             |            |                 |
+| collector-vxvv7               | 2/2   | Running | gmp-system |             |            |                 |
+| gmp-operator-77498d6487-t2sdz | 1/1   | Running | gmp-system |             |            |                 |
+| kube-state-metrics-0          | 2/2   | Running |            |             |            | gke-managed-cim |
+
+# 3.6 Build and Push Base Docker Images
+
+On DSS VM:
+
+```
+./bin/dssadmin build-base-image --type container-exec
+```
+
+# Push images to GAR form portal :
+
+(DSS handles this from the UI when Containerized Execution is configured)
+
+# Push result
+
+# Information
+
+INFO Image push succeeded INFO_CONTAINER_IMAGE_PUSH_OK
+
+Successfully pushed dku-exec-base-o7euxhafw3qnu5dglnpdfvcr:dss-14.2.0 to us-central1-docker.pkg.dev/fe-emea-aabdelkhalek/dss-containers
+
+INFO Image push succeeded INFO_CONTAINER_IMAGE_PUSH_OK
+
+Successfully pushed dku-cde-base-o7euxhafw3qnu5dglnpdfvcr:dss-14.2.0 to us-central1-docker.pkg.dev/fe-emea-aabdelkhalek/dss-containers
+
+Note: cde image was failed to push because I didn't make it so I searched in Dataiku docs then I found I should build it first with this command
+
+```
+/home/dataiku/dss_data/bin/dssadmin build-base-image --type cde
+```
+
+then I pushed the image so both images pushed successfully.
+
+# 3.7 Test GKE Integration With DSS
+
+Go to a test project (suggest "Dataiku TShirts")
+
+Add a Python recipe
+
+Set engine to Containerized execution (GKE) from the advanced setting in the python
+
+# Container configuration
+
+Selection behavior Select a container configuration
+
+dss-cluster-configuration
+
+Run job and confirm dispatch to GKE cluster
+
+| NAMESPACE       | NAME                        | READY | STATUS  | RESTARTS | AGE  | IP          | NODE                                         | NOMINATED NODE | READINESS GATES |
+| --------------- | --------------------------- | ----- | ------- | -------- | ---- | ----------- | -------------------------------------------- | -------------- | --------------- |
+| dssns-dataiku   | dataiku-exec-python-coauvtb | 1/1   | Running | 0        | 5s   | 10.112.2.24 | gke-dss-containers-node-pool-0-a8a4d283-v1kf |                |                 |
+| gke-managed-cim | kube-state-metrics-0        | 2/2   |         | 0        | 10   | 10.112.0.5  | gke-dss-containers-node-pool-0-a8a4d283-1wg0 |                |                 |
+| gmp-system      | collector-ngvgc             | 2/2   | Running | 0        | 2d4h | 10.112.1.4  | gke-dss-containers-node-pool-0-a8a4d283-m79d |                |                 |
+| gmp-system      | collector-rm6cv             | 2/2   |         | 0        | 10   |             |                                              |                |                 |
+
+# Step 4: Expose DSS Over HTTPS (Secure Web Access)
+
+# 4.1 Generate SSL Certificates
+
+Generate a self-signed certificate (recommended for internal/testing; obtain a CA-signed cert for production):
+
+```
+sudo openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+-keyout /home/dataiku/cert/dss.key -out /home/dataiku/cert/dss.crt
+```
+
+Change /home/dataiku/cert/ to your preferred certificate directory
+
+When prompted, fill in your Organization/Location details
+
+# 4.2 Nginx Reverse Proxy Configuration
+
+Edit your Nginx site config for DSS (/etc/nginx/sites-available/dss):
+
+```
+server {
+  listen 443 ssl;
+  server_name 34.60.146.121;
+
+  ssl_certificate /home/dataiku/cert/dss.crt;
+  ssl_certificate_key /home/dataiku/cert/dss.key;
+
+  location / {
+    proxy_pass http://localhost:10000;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Additional recommended settings for DSS/Nginx:
+    proxy_buffering off;
+    proxy_connect_timeout 600;
+    proxy_send_timeout 600;
+    proxy_read_timeout 600;
+    send_timeout 600;
+  }
+}
+```
+
+Replace 34.60.146.121 with your DSS VM's external (or DNS) address as appropriate.
+
+Place certificate files in the location specified above (adjust path if needed).
+
+Enable the site:
+
+```
+sudo ln -s /etc/nginx/sites-available/dss /etc/nginx/sites-enabled/dss
+```
+
+# 4.3 Restart Nginx
+
+Apply your configuration changes:
+
+```
+sudo systemctl restart nginx
+```
+
+# 4.4 DSS HTTPS Access & Verification
+
+Browse to https://34.60.146.121/
+
+DSS should now be securely available over HTTPS.
+
+Accept browser security warning if using self-signed cert (production CA cert won't show warnings).
+
+# HTTPS deployment behind a nginx reverse proxy
+
+DSS can also be accessed using secure HTTPS connections, provided you have a valid certificate for the host name on which it should be visible (some browsers do not accept secure WebSocket connections using untrusted certificates).
+
+You can configure this by deploying a nginx reverse proxy server, on the same or another host than Data Science Studio, using a variant of the following configuration snippet:
+
+# nginx SSL reverse proxy configuration for Dataiku Data Science Studio
+
+# Step 5: Configure Dataiku DSS for Spark on GKE & GCS
+
+# Prerequisites
+
+- DSS running and accessible
+- GKE cluster deployed and connected to DSS
+- GCS bucket available, with service account access
+- Docker and kubectl installed, functional for DSS user on DSS host (must be able to build and push images)
+- Outbound internet access for DSS host and cluster nodes
+- DSS base images built and pushed to your Artifact Registry
+
+# 5.1. Install Spark and Hadoop Client Libraries
+
+Download from Dataiku:
+
+- dataiku-dss-spark-standalone
+- dataiku-dss-hadoop-standalone-libs-generic-hadoop3
+
+Install on DSS host:
+
+```
+./bin/dssadmin install-hadoop-integration -standaloneArchive /PATH/TO/dataiku-dss-hadoop3-standalone-libs-generic...tar.gz
+./bin/dssadmin install-spark-integration -standaloneArchive /PATH/TO/dataiku-dss-spark-standalone....tar.gz -forK8S
+```
+
+# 5.2. Build and Push DSS Base Images
+
+After each DSS upgrade, you must rebuild images:
+
+```
+# Build base image for container execution
+./bin/dssadmin build-base-image --type container-exec
+# Optional: Build Spark base image
+```
+
+# 5.3. Containerized Execution Configuration
+
+Go to Administration > Settings > Containerized Execution
+
+Click Add another config
+
+| Image registry URL: | us-central1-docker.pkg.dev/fe-emea-aabdelkhalek/dss-containers |
+| ------------------- | -------------------------------------------------------------- |
+| Namespace:          | Recommended: dssns-${dssUserLogin} (auto-create enabled)       |
+
+Save configuration
+
+# 5.4. Spark Configuration
+
+Go to Administration > Settings > Spark
+
+For each Spark configuration intended for Kubernetes:
+
+| Enable:              | Managed Spark on K8S                              |
+| -------------------- | ------------------------------------------------- |
+| Image registry URL:  | (same as above)                                   |
+| Namespace:           | e.g., dssns-${dssUserLogin} (auto-create enabled) |
+| Authentication mode: | Create service accounts dynamically               |
+
+Save configuration
+
+Configuration - Spark 4.0.1 Documentation
+
+| Managed Spark-on-K8S  |                                                                 | Automatically manage setting up Spark for Kubernetes. If you're not using dynamic K8S clusters, you'll still need to setup the spark.masterconfig key |
+| --------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Image registry URL    | us-central1-docker.pkg.dev/fe-emea                              | Base URL of the image registry, in the form host/root. See doc. for more information.                                                                 |
+| Image pre-push hook   | None                                                            | Action to run before pushing an image. This is usually only required for running on Amazon EKS or Azure AKS                                           |
+| Kubernetes namespace  | dssns-${dssUserLogin}                                           | Kubernetes Namespace to use. Variable expansion is supported                                                                                          |
+| Make K8S-compliant    |                                                                 | Automatically adjust namespace name to ensure it is compatible with the RFC1123 sub-domain syntax enforced by Kubernetes                              |
+| Auto-create namespace | Automatically create the namespace if it doesn't already exist. |                                                                                                                                                       |
+| Authentication mode   | Create service accounts dynamica                                | Spark-on-K8S jobs need end-users to authenticate to K8S. Select how to authenticate and authorize user jobs                                           |
+
+Add advanced keys as needed for your workflow (refer to DSS docs for more options).
+
+# 5.5. Push Base Images (UI Step)
+
+In Administration > Settings > Containerized Execution, click "Push base images".
+
+# 5.6. Choose Containerized Execution for Recipes
+
+Set your default execution in Administration > Settings > Containerized Execution
+
+OR select per project (Project Settings > Containerized Execution)
+
+OR set in individual recipes (advanced settings)
+
+# 5.7. Run Spark Job in Project
+
+Go to your DSS project ("TShirts" example)
+
+Open a visual recipe (e.g., Prepare or Join)
+
+In the engine selector, change engine to Spark; select your Spark-on-GKE configuration
+
+If prompted, choose correct Spark config
+
+Run the recipe
+
+# Monitoring:
+
+In DSS job logs: confirm Spark context starts/finishes on Kubernetes
+
+In GCP Console > Kubernetes Engine > Workloads: driver and executor pods appear and terminate after job
+
+# 5.8. Confirmation of Correct Operation
+
+Recipe completes successfully, DSS job log shows Kubernetes dispatch and pod creation
+
+Build web_new_customers_enriched (NP) Today, 11:05 to 11:06 (duration: 1m 7s)
+
+# Spark driver/executor pods visible in Workloads while active
+
+| NAMESPACE        | NAME                                            | READY | STATUS  | RESTARTS | AGE        | I         |   |           |
+| ---------------- | ----------------------------------------------- | ----- | ------- | -------- | ---------- | --------- | - | --------- |
+| P                | dssvpreppreparewebnewcustomers-ibuupoe8         | 1/1   | Running |          |            |           |   |           |
+| dssns-dataikugke | dss-containers-node-pool-0-a8a4d283-v1kf-exec-1 | 0     | 21s     | 1        | 0.112.2.28 |           |   |           |
+| dssns-dataiku    | dssvpreppreparewebnewcustomers-ibuupoe8-exec-2  | 0     | 1       | 0        | 1          | 0.112.1.9 |   |           |
+| gke-managed-cim  | kube-state-metrics-0                            | 2/2   | 0       | 2d23h    | 1          | 0.112.0.5 |   |           |
+| gmp-system       | collector-ngvgc                                 |       | 2/2     | Running  | 0          | 2d23h     | 1 | 0.112.1.4 |
+| gmp-system       | collector-rm6cv                                 | 2/2   | 0       | 2d23h    |            | 0.112.2.3 |   |           |
+
+Output dataset is built by Spark engine
+
+No permissions/auth failures in logs
+
+# 6. Dataiku DSS User Isolation Framework (UIF) with Managed Spark
+
+# on Kubernetes (GKE+GCS)
+
+# 6.1. UIF Overview and Prerequisites
+
+UIF isolates user-controlled code for security and traceability.
+
+# Prerequisites:
+
+- GKE cluster set up and accessible.
+- GCS bucket for Spark temp/data.
+- Root access to DSS VM for initial UIF and permissions.
+- Your DSS edition supports UIF.
+
+# 6.2. Initial UIF Setup (Local Isolation & Impersonation)
+
+# A. Stop DSS
+
+```
+cd ~/dss-data
+./bin/dss stop
+```
+
+# B. Initialize User Isolation Framework
+
+From DSS Data Directory, as root:
+
+```bash
+./bin/dssadmin install-impersonation dataiku
+```
+
+Ensure /etc/dataiku-security/<INSTALL_ID>/security-config.ini exists.
+
+# C. Configure Allowed User Groups
+
+```
+sudo cat /etc/dataiku-security/O7eUXHafW3qNU5DgLnpDfvcr/security-config.ini
+[users]
+# Enter here the list of groups that are allowed to execute commands.
+# DSS may impersonate all users belonging to one of these groups
+# Specify this as a semicolon;separated;list
+#
+# This must double-check with the settings of the groups with
+# code-writing or Hadoop/Spark privileges in DSS
+allowed_user_groups = dataiku
+
+[dirs]
+# Absolute path to DSS data dir.
+dss_datadir = /home/dataiku/dss_data
+
+# Additional 'allowed' folders. File operations are allowed in
+# the dss datadir and these folders. Use this if you use symlinks for jobs/
+# or any other DSS folder
+#
+# Specify this as a semicolon;separated;list
+additional_allowed_file_dirs =
+```
+
+# E. Adjust Permissions
+
+Ensure execute (711) for data dir and parents:
+
+```bash
+chmod 711 <datadir>
+```
+
+Restart DSS:
+
+```bash
+./bin/dss start
+```
+
+# 6. 3. Identity Mapping Configuration
+
+DSS UI > Administration > Settings > Security & Audit > Other security settings
+
+Map email/LDAP users to UNIX users (default is 1:1 mapping).
+
+# Other security settings
+
+# User isolation
+
+# User impersonation rules
+
+| Rule type  | One-to-one mapping | V          |
+| ---------- | ------------------ | ---------- |
+| Rule rank  | 1                  | ADD DELETE |
+| Applies to | All projects       | V          |
+
+# Group impersonation rules
+
+# 6. 4. Kubernetes Reference Architecture (UIF + Spark on GKE)
+
+Reference: UIF Kubernetes Setup
+
+# A. Regular Container Jobs (Non-Spark)
+
+Run with DSS host security, isolated according to UIF configuration. No further setup required for regular container activities.
+
+# B. Spark Workloads Isolation (Strong Security Best Practice)
+
+For each DSS user:
+
+- Own Kubernetes namespace: e.g., dss-ns-USERNAME
+- Dynamically generated service accounts: Only for their namespace
+
+# Steps:
+
+1. DSS UI > Administration > Settings > Spark > Add Configuration
+2. Set:
+
+- Engine/Execution Mode: Kubernetes (GKE) / Managed Spark on K8S
+- Managed K8S config: Enabled
+- Target namespace: dssns-${dssUserLogin} (auto-create enabled)
+- Authentication: Create service accounts dynamically
+- Image/container registry: Set as per your GAR settings
+
+Managed Spark-on-K8S: Automatically manage setting up Spark for Kubernetes. If you're not using dynamic K8S clusters, you'll still need to setup the spark.masterconfig key.
+
+- Image registry URL: us-central1-docker.pkg.dev/fe-emea - Base URL of the image registry, in the form host/root. See doc. for more information
+- Image pre-push hook: None - Action to run before pushing an image. This is usually only required for running on Amazon EKS or Azure AKS
+- Kubernetes namespace: dssns-${dssUserLogin} - Kubernetes Namespace to use. Variable expansion is supported
+
+# Containerized execution configs
+
+| Configuration name                                           | dss-cluster-configuration |
+| ------------------------------------------------------------ | ------------------------- |
+| NB: renaming or removing configurations could cause trouble. |                           |
+| Container engine                                             | Kubernetes                |
+
+# Settings
+
+| Image registry URL                                                                                                       | us-central1-docker.pkg.dev/fe-emea                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Base URL of the image registry, in the form host/root. See doc. for more information.                                    |                                                                                                                                                                                                                |
+| Image registry pull secret name                                                                                          | Optional: The secret name is used in the Kubernetes imagePullSecrets manifest section. This is required if your container registry is private and your cluster needs to authenticate to it for pulling images. |
+| Image pre-push hook                                                                                                      | None                                                                                                                                                                                                           |
+| Action to run before pushing an image. This is usually only required for running on Amazon EKS or Azure AKS              |                                                                                                                                                                                                                |
+| Kubernetes Namespace                                                                                                     | dssns-${dssUserLogin}                                                                                                                                                                                          |
+| Kubernetes namespace to use. Variable expansion is supported. Empty = use cluster default                                |                                                                                                                                                                                                                |
+| Make K8S-compliant                                                                                                       | 0                                                                                                                                                                                                              |
+| Automatically adjust namespace name to ensure it is compatible with the RFC1123 sub-domain syntax enforced by Kubernetes |                                                                                                                                                                                                                |
+| Auto-create namespace                                                                                                    | V Al                                                                                                                                                                                                           |
+
+# How It Works:
+
+DSS creates/uses a namespace and service account per Spark user/job.
+
+Driver/executor pods are only in that namespace.
+
+Service account is deleted at end of job.
+
+No cross-namespace privileges.
+
+# 6.5. Testing & Validation
+
+# A. Test Run
+
+Run a Spark job as a non-admin DSS user.
+
+In GKE:
+
+```bash
+kubectl get namespaces | grep dssns-
+kubectl get serviceaccounts -A | grep dssns-
+```
+
+Should see per-user namespace and service account. Spark pods should only run there.
+
+```
+dataiku@dss-design-node:~$ kubectl get serviceaccounts -A | grep dssns
+dssns-admin                                       default                                                                                                          0                   2d23h
+dssns-dataiku                                     default                                                                                                          0                   2d
+dssns-dataiku                                     dss-svc-account-dataiku-pxz9crio                                                                                 0                   21s
+dataiku@dss-desiqn-node:- $ kubectl get namespaces | grep dssns
+dssns-admin                                       Active               2d23h
+dssns-dataiku                                    Active               2d
+```
+
+# C. Log Validation
+
+DSS logs, Spark submit logs, and kubectl get events -A for failures/errors.
+
+Check /home/dataiku/dss_data/run/install.log for UIF issues.
